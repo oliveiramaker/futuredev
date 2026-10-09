@@ -7,3 +7,6 @@ __pycache__/
 test-results/
 *.log
 .DS_Store
+dist/
+.vercel/
+supabase/.temp/

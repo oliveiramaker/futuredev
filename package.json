@@ -1,13 +1,25 @@
 {
   "name": "futuredev",
-  "version": "1.1.0",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
   "description": "Plataforma pessoal de formação em Python, com aulas, prática real e preparação profissional.",
   "scripts": {
-    "dev": "python3 -m http.server 4173",
-    "test": "node --test tests/core.test.js && python3 tests/check_curriculum.py",
-    "check": "node --check js/app.js && node --check js/curriculum.js && node --check js/store.js && node --check js/runner.js && node --check js/python-worker.js && node --check js/views.js && node --check js/ui.js && node --check js/content.js && node --check sw.js"
+    "dev": "npm run build && python3 -m http.server 4173 --directory dist",
+    "build": "node --env-file-if-exists=.env.local scripts/build.mjs",
+    "test": "node --test tests/*.test.js && python3 tests/check_curriculum.py",
+    "test:browser": "node tests/cloud-browser.cjs",
+    "check": "node --check js/app.js && node --check js/curriculum.js && node --check js/store.js && node --check js/runner.js && node --check js/python-worker.js && node --check js/views.js && node --check js/ui.js && node --check js/content.js && node --check sw.js && node --check js/cloud-store.js && node --check js/account.js && node --check scripts/build.mjs"
   },
-  "engines": { "node": ">=20" }
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.117.3"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.8",
+    "esbuild": "0.28.2",
+    "playwright": "1.62.1"
+  }
 }

@@ -1,3 +1,5 @@
+> **Versão com contas:** esta branch integra Supabase Auth e banco de dados com publicação na Vercel. A ativação depende de configurar o projeto Supabase e o acesso à Vercel. Consulte [o guia de configuração](docs/cloud-setup.md).
+
 # FutureDev
 
 [**Abrir plataforma**](https://oliveiramaker.github.io/futuredev/)
@@ -25,7 +27,7 @@ A interface segue a identidade do Ecomfy: Space Grotesk, azul cobalto, verde-lim
 
 ## Comece por aqui
 
-1. Abra o site e entre em **Meu plano** para ajustar tempo, dias e meta. No celular, o ícone de configurações leva às preferências e ao plano.
+1. Crie sua conta, confirme o e-mail e entre. Abra **Meu plano** para ajustar tempo, dias e meta. No celular, o ícone de configurações leva às preferências e ao plano.
 2. Faça o diagnóstico se já tiver alguma base. Ele não marca aulas como concluídas.
 3. Abra a primeira aula, leia o conceito e edite `main.py`.
 4. Use **Executar** para observar; use **Verificar exercício** para corrigir e concluir.
@@ -33,37 +35,36 @@ A interface segue a identidade do Ecomfy: Space Grotesk, azul cobalto, verde-lim
 6. Construa os projetos no computador e registre o que você verificou.
 7. Exporte um backup regularmente em **Progresso e preferências**.
 
-O interpretador é baixado na primeira execução e requer conexão. Bibliotecas do navegador têm limitações: servidores FastAPI, ambientes virtuais e comandos Git são práticas no computador, identificadas nas aulas. Arquivos e SQLite criados pelo exercício são temporários, isolados por execução. O rascunho do editor e o progresso persistem no navegador.
+O interpretador é baixado na primeira execução e requer conexão. Bibliotecas do navegador têm limitações: servidores FastAPI, ambientes virtuais e comandos Git são práticas no computador, identificadas nas aulas. Arquivos e SQLite criados pelo exercício são temporários, isolados por execução. O rascunho do editor e o progresso são sincronizados com a conta. Alterações pendentes ficam na memória da sessão até a sincronização.
 
 ## Executar localmente
 
-Não há build nem dependências obrigatórias de frontend. Python e Node são necessários somente para desenvolver e verificar o projeto.
+Instale Node.js 24 e as dependências. Configure a URL e a chave pública do projeto Supabase em `.env.local`:
 
 ```bash
 git clone https://github.com/oliveiramaker/futuredev.git
 cd futuredev
-python -m http.server 4173
+npm ci
+cp .env.example .env.local
+# Preencha SUPABASE_URL e SUPABASE_PUBLISHABLE_KEY em .env.local.
+npm run dev
 ```
 
-Abra `http://localhost:4173/`. Não abra `index.html` diretamente por `file://`: módulos, Workers e service workers precisam de HTTP/HTTPS.
+Abra `http://localhost:4173/`. O build cria `dist/`, a pasta publicada pela Vercel. O código de origem não deve ser servido diretamente por HTTP sem compilar o SDK.
 
-## GitHub Pages
+## Publicação na Vercel e migração do Pages
 
-O projeto usa caminhos relativos e rotas por hash: funciona tanto em `/futuredev/` quanto na raiz de um domínio.
+Consulte [Supabase + Vercel](docs/cloud-setup.md) para aplicar a migração, configurar e-mails, variáveis públicas e URLs de redirecionamento. A versão com contas está preparada na branch `feat/supabase-auth`; a ativação depende de um projeto Supabase próprio e configurado.
 
-O fluxo em `.github/workflows/pages.yml` verifica o currículo e publica os arquivos estáticos. Se Pages ainda não estiver habilitado, em **Settings → Pages → Build and deployment → Source**, selecione **GitHub Actions** e execute o workflow **Publish FutureDev**. Essa configuração exige acesso administrativo e pode precisar de uma etapa no GitHub do proprietário.
-
-Alternativamente, selecione **Deploy from a branch**, branch **main**, pasta **/ (root)**. A presença de `.nojekyll` preserva os arquivos estáticos sem processamento Jekyll. Nesse modo, o GitHub cuida da publicação da branch e o workflow continua validando o conteúdo. Se Pages não estiver habilitado, o workflow valida o projeto e indica a configuração inicial necessária, sem tentar um deploy que depende dessa configuração.
-
-Plataforma publicada: [oliveiramaker.github.io/futuredev](https://oliveiramaker.github.io/futuredev/). A publicação atual usa a branch **main**, pasta **/ (root)**; os dois modos acima continuam disponíveis.
+O Pages atual é a versão anterior com progresso no navegador. Exporte o backup antes da transição e restaure na conta. Para continuar usando Pages com a versão compilada, selecione **GitHub Actions** e configure `SUPABASE_URL` e `SUPABASE_PUBLISHABLE_KEY` como variáveis do repositório. Publicar a raiz da branch diretamente não compila o SDK.
 
 ## Progresso e banco de dados
 
-Esta versão usa `localStorage`, com esquema versionado e backup validado. É suficiente para a jornada individual em um navegador e permite iniciar no Pages sem uma conta ou backend. **Não há sincronização automática entre aparelhos.**
+Esta versão usa Supabase Auth e PostgreSQL. O progresso completo fica em uma linha JSONB por usuário, com esquema versionado, RLS e controle de revisão. A sincronização acontece automaticamente; cada usuário acessa somente seus dados. O SDK guarda apenas a sessão de login no navegador. Backups JSON continuam disponíveis.
 
-O código do curso está no Git; o progresso pessoal fica no navegador e não é enviado ao repositório. Ao comprar um domínio, exporte no endereço antigo e restaure no novo. Cada endereço tem seu próprio armazenamento.
+O código do curso está no Git; o progresso pessoal fica no banco e não é enviado ao repositório. Para migrar do Pages antigo, exporte o backup e importe uma vez na nova conta. Depois, a mesma conta recupera os dados em outros aparelhos. Ao adicionar um domínio, atualize as URLs de redirecionamento do Supabase.
 
-Para contas e sincronização, a próxima etapa é acrescentar autenticação e um banco externo com isolamento por usuário. Isso é uma evolução planejada, não um banco já configurado. Consulte [Arquitetura](docs/ARCHITECTURE.md).
+A integração com contas está implementada. A configuração externa e a validação com e-mails reais são a etapa de ativação. Consulte [Arquitetura](docs/ARCHITECTURE.md).
 
 ## Verificação
 
@@ -77,12 +78,13 @@ São verificados: contratos do currículo, progressão, XP sem duplicação, rev
 Teste opcional com Chromium e Python real no navegador (o teste inicia seu próprio servidor temporário em `/futuredev/`):
 
 ```bash
-npm install --no-save playwright
+npm ci
+npx playwright install chromium
 npx playwright install chromium
 node tests/browser.cjs
 ```
 
-Se o servidor estiver na pasta pai ou em outra porta, defina `FUTUREDEV_BASE_URL`. O teste inclui todas as 48 soluções, entrada `input()`, interrupção de laços, persistência, avaliações, projetos, candidaturas, backup, layout 320–1440px e leitura offline. Capturas e dados de teste ficam em `test-results/`, ignorado pelo Git.
+Se o servidor estiver na pasta pai ou em outra porta, defina `FUTUREDEV_BASE_URL`. O teste inclui todas as 48 soluções, entrada `input()`, interrupção de laços, persistência, avaliações, projetos, candidaturas, backup, layout 320–1440px e leitura offline. Os testes do curso usam Auth sintético e o PostgreSQL real via PGlite. O teste `npm run test:browser` cobre autenticação e sincronização. Capturas e dados de teste ficam em `test-results/`, ignorado pelo Git.
 
 ## Estrutura
 

@@ -2,12 +2,16 @@ import {modules,lessons,lessonMap,quizzes,diagnostic} from './curriculum.js';
 import {projects,interviewQuestions} from './content.js';
 import {Store,today,touch,recordLesson,grade,recordQuiz,recordDiagnostic,recordQuestionReview,dueReviews,safeUrl,sanitize,validDate} from './store.js';
 import {PythonRunner} from './runner.js';
+import {CloudStore, progressAPI} from './cloud-store.js';
+import {createAccountClient, accountGate, accountPanel, authMessage, syncLabels} from './account.js';
 import {icon,esc} from './ui.js';
-import {shell,dashboard,trail,lessonView,lab,assessment,reviews,projectView,career,planView,settings} from './views.js?v=1.1.0';
+import {shell,dashboard,trail,lessonView,lab,assessment,reviews,projectView,career,planView,settings} from './views.js?v=2.0.0';
 
 let localStorageAdapter;
 try {localStorageAdapter=window.localStorage;} catch {localStorageAdapter={getItem:()=>null,setItem:()=>{throw new Error('Armazenamento indisponível');}};}
-const store=new Store(localStorageAdapter);
+const legacyStore=new Store(localStorageAdapter);
+let store=legacyStore;
+const account={client:null,user:null,ready:false,recovery:false,mode:'loading',generation:0};
 const app=document.querySelector('#app');
 const dialog=document.querySelector('#dialog');
 const ui={route:'inicio',arg:'',quizResult:null,reviewQuestions:null,interviewId:interviewQuestions[0].id,lastExecution:null,runtime:{type:'idle',message:'Python no navegador'},inputs:{}};
@@ -15,13 +19,19 @@ let draftTimer,toastTimer,focusSession=null,focusInterval=null;
 const runner=new PythonRunner((type,message)=>{ui.runtime={type,message};runtimeStatus();});
 
 function toast(message) {const el=document.querySelector('#toast');el.textContent=message;el.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),5000);}
-function persistedToast(ok,message) {toast(ok?message:store.error);}
+async function persistedToast(ok,message) {
+ const target=store;
+ if(ok&&target instanceof CloudStore)ok=await target.flush();
+ if(target===store)toast(ok?message:target.error);
+}
 function currentId() {return ui.route==='aula'&&lessonMap[ui.arg]?ui.arg:ui.route==='laboratorio'?'lab':null;}
 function saveDraft() {
  clearTimeout(draftTimer);
+ if(!account.ready||account.recovery)return true;
  const id=currentId(),editor=document.querySelector('#code-editor');
  if(!id||!editor)return true;
  ui.inputs[id]=document.querySelector('#python-inputs')?.value||'';
+ if(store.state.drafts[id]===editor.value)return true;
  return store.update(s=>{s.drafts[id]=editor.value;if(id!=='lab')s.lastLesson=id;});
 }
 function runtimeStatus() {
@@ -30,16 +40,22 @@ function runtimeStatus() {
  const stop=document.querySelector('[data-action="stop"]');if(stop)stop.hidden=!runner.busy;
 }
 function render() {
+ if(!account.ready||account.recovery){showAccount(account.recovery?'recovery':account.mode);return;}
  const s=store.state;document.documentElement.dataset.theme=s.theme;
  document.querySelector('meta[name="theme-color"]')?.setAttribute('content',s.theme==='dark'?'#11152a':'#f7f4ec');
- const view=ui.route==='inicio'?dashboard(s):ui.route==='trilha'?trail(s,ui.arg):ui.route==='aula'?lessonView(s,ui.arg):ui.route==='laboratorio'?lab(s):ui.route==='avaliacao'?assessment(s,ui.arg,ui):ui.route==='revisoes'?reviews(s):ui.route==='projetos'?projectView(s,ui.arg):ui.route==='carreira'?career(s,ui):ui.route==='plano'?planView(s):settings(s);
- app.innerHTML=shell(s,ui.route,view,store.error);
+ const view=ui.route==='inicio'?dashboard(s):ui.route==='trilha'?trail(s,ui.arg):ui.route==='aula'?lessonView(s,ui.arg):ui.route==='laboratorio'?lab(s):ui.route==='avaliacao'?assessment(s,ui.arg,ui):ui.route==='revisoes'?reviews(s):ui.route==='projetos'?projectView(s,ui.arg):ui.route==='carreira'?career(s,ui):ui.route==='plano'?planView(s):accountPanel(account.user,store,hasLegacy())+settings(s);
+ app.innerHTML=shell(s,ui.route,view);
+ const actions=document.querySelector('.top-actions');
+ actions?.insertAdjacentHTML('afterbegin',`<span class="cloud-status" data-sync-status data-status="${store.status}" role="status">${esc(syncLabels[store.status])}</span>`);
+ document.querySelector('#main').insertAdjacentHTML('beforebegin','<div class="notice danger cloud-alert" data-cloud-alert role="alert" hidden><div><span class="cloud-notice-text" data-cloud-message></span><button class="text-link" data-action="sync-now">Tentar sincronizar</button><button class="text-link" data-action="export">Exportar tentativa</button><button class="text-link" data-action="reload-cloud">Carregar progresso da conta</button></div></div>');
+ updateCloudStatus(store);
  document.title=`${ui.route==='aula'&&lessonMap[ui.arg]?lessonMap[ui.arg].title:ui.route==='laboratorio'?'Laboratório Python':ui.route==='carreira'?'Sua primeira vaga':'Sua jornada em Python'} · FutureDev`;
  const id=currentId();if(id&&ui.inputs[id])document.querySelector('#python-inputs').value=ui.inputs[id];
  if(ui.lastExecution?.id===id)displayResult(ui.lastExecution);
  runtimeStatus();drawFocus();
 }
 function route() {
+ if(!account.ready||account.recovery)return;
  saveDraft();if(runner.busy)runner.stop();
  const [page,arg='']=location.hash.replace(/^#\/?/,'').split('/');
  const allowed=['inicio','trilha','aula','laboratorio','avaliacao','revisoes','projetos','carreira','plano','preferencias'];
@@ -91,6 +107,7 @@ function displayResult(execution) {
  feedback.innerHTML=`<div class="feedback-heading ${passed?'':'failed'}">${icon(passed?'check':'info',22)}<div><strong>${passed?(outcome?.first?'Aula concluída! +60 XP':outcome?.review?'Revisão concluída! +10 XP':'Todos os testes passaram.'):'Ainda temos algo para ajustar.'}</strong><p>${passed?'Você aplicou a regra nos casos verificados. Explique a solução com suas palavras.':`${correct} de ${lessonMap[execution.id].tests.length} casos passaram. Leia o resultado, ajuste e tente novamente.`}</p></div></div>${tests.map(t=>`<div class="test-case ${t.passed?'passed':''}">${icon(t.passed?'check':'close',16)}<div>${esc(t.label)}${t.error?`<small>${esc(t.error)}</small>`:''}</div></div>`).join('')}`;
 }
 async function execute(verified=false) {
+ const executionStore=store;
  const id=currentId();if(!id)return;
  const l=lessonMap[id],source=document.querySelector('#code-editor').value;
  const inputText=document.querySelector('#python-inputs')?.value||'';
@@ -104,11 +121,12 @@ async function execute(verified=false) {
   const result=await runner.execute(source,verified&&l?l.tests:[],inputs);
   let outcome=null;
   const allPassed=!result.error&&result.tests.length===(l?.tests.length||0)&&result.tests.every(t=>t.passed);
+  if(executionStore!==store||!account.ready)return;
   const saved=store.update(s=>{if(verified&&l)outcome=recordLesson(s,id,allPassed);else touch(s);});
   if(currentId()!==id)return;
   ui.lastExecution={id,result,verified:!!(verified&&l),outcome,elapsed:Math.round(performance.now()-began)};
   const y=window.scrollY;render();window.scrollTo(0,y);
-  if(!saved)toast(store.error);else if(outcome?.first)toast('Mais um passo construído. Aula concluída e progresso salvo.');
+  if(!saved)toast(store.error);else if(outcome?.first)persistedToast(saved,'Mais um passo construído. Aula concluída e progresso salvo na conta.');
  } catch(error) {
   if(currentId()===id){document.querySelector('#console-output').innerHTML=`<pre class="error-output">${esc(error.message)}</pre>`;document.querySelector('#execution-label').textContent='Interrompido';}
  } finally {runtimeStatus();}
@@ -143,6 +161,22 @@ const labExamples={
 document.addEventListener('click',async event=>{
  const button=event.target.closest('[data-action]');if(!button||button.disabled)return;
  const action=button.dataset.action;
+ if(action.startsWith('auth-')){showAccount(action==='auth-signup'?'signup':action==='auth-forgot'?'forgot':'login');return;}
+ if(action==='retry-account'){if(!account.client){void bootAccount();return;}const {data}=await account.client.auth.getSession();void openAccount(data.session,'INITIAL_SESSION',true);return;}
+ if(action==='logout'){
+  saveDraft();finishFocus(false,true);
+  const target=store;
+  if(target instanceof CloudStore&&target.dirty&&!await target.flush()){toast('Sincronize ou exporte as alterações antes de sair.');return;}
+  button.disabled=true;
+  const {error}=await account.client.auth.signOut({scope:'local'});
+  if(error){button.disabled=false;toast(authMessage(error));}
+  return;
+ }
+ if(!account.ready||account.recovery)return;
+ if(action==='sync-now'){saveDraft();const ok=await store.flush();if(ok){try{if(await store.refresh())render();toast('Progresso sincronizado com sua conta.');}catch{toast('Não foi possível buscar as alterações da conta.');}}else toast(store.error);return;}
+ if(action==='reload-cloud'){modal('<h2>Carregar o progresso da conta?</h2><p>As alterações desta sessão serão substituídas pela versão salva no servidor. Exporte sua tentativa antes de continuar.</p><div class="modal-actions"><button class="button outline" data-action="export">Exportar tentativa</button><button class="button outline" data-action="close-modal">Cancelar</button><button class="button primary" data-action="confirm-reload-cloud">Carregar da conta</button></div>');return;}
+ if(action==='confirm-reload-cloud'){try{await store.reload();closeModal();ui.inputs={};ui.lastExecution=null;render();toast('Versão da conta carregada.');}catch{toast('Não foi possível carregar. Sua tentativa continua nesta sessão.');}return;}
+ if(action==='import-local'){ui.importedBackup=legacyStore.state;modal(`<h2>Transferir seu progresso anterior?</h2><p>Os dados de <strong>${esc(legacyStore.state.profile.name)}</strong> serão salvos na conta <strong>${esc(account.user.email)}</strong>. Isso substitui o progresso atual desta conta. A cópia antiga do navegador será preservada.</p><div class="modal-actions"><button class="button outline" data-action="close-modal">Cancelar</button><button class="button primary" data-action="confirm-import">Transferir para minha conta</button></div>`);return;}
  if(action==='theme'){saveDraft();store.update(s=>s.theme=s.theme==='dark'?'light':'dark');refreshPreservingScroll();}
  else if(action==='run')await execute(false);
  else if(action==='test')await execute(true);
@@ -169,9 +203,11 @@ document.addEventListener('click',async event=>{
  else if(action==='confirm-delete-application'){persistedToast(store.update(s=>s.applications=s.applications.filter(a=>a.id!==ui.deleteApplication)),'Candidatura removida.');closeModal();render();}
 });
 
-document.addEventListener('submit',event=>{
+document.addEventListener('submit',async event=>{
  const form=event.target;if(!form.id)return;
  event.preventDefault();const data=new FormData(form);
+ if(form.id==='auth-form'){await submitAccount(form,data);return;}
+ if(!account.ready||account.recovery)return;
  if(form.id==='quiz-form'){
   const id=form.dataset.quiz;const questions=id==='diagnostico'?diagnostic:id==='revisao'?ui.reviewQuestions:quizzes[id];
   const answers=questions.map((_,i)=>data.has(`q-${i}`)?Number(data.get(`q-${i}`)):null);
@@ -205,7 +241,7 @@ document.addEventListener('input',event=>{
   document.querySelector('#line-numbers').textContent=target.value.split('\n').map((_,i)=>i+1).join('\n');
   if(ui.lastExecution){ui.lastExecution=null;document.querySelector('#test-feedback').innerHTML='';document.querySelector('#execution-label').textContent='Código alterado';}
   const label=document.querySelector('#draft-status');label.textContent='Salvando rascunho…';clearTimeout(draftTimer);
-  draftTimer=setTimeout(()=>{const ok=saveDraft();const label=document.querySelector('#draft-status');if(label)label.textContent=ok?'Rascunho salvo neste navegador':'Não salvo. Exporte um backup.';},350);
+  draftTimer=setTimeout(()=>{const ok=saveDraft();const label=document.querySelector('#draft-status');if(label)label.textContent=ok?'Rascunho aguardando sincronização':'Não salvo. Exporte um backup.';},350);
  }
 });
 document.addEventListener('scroll',event=>{if(event.target.id==='code-editor')document.querySelector('#line-numbers').scrollTop=event.target.scrollTop;},true);
@@ -224,19 +260,92 @@ document.addEventListener('keydown',event=>{
  }
 });
 document.addEventListener('change',async event=>{
+ if(!account.ready||account.recovery)return;
  const target=event.target;
  if(target.dataset.careerCheck){const id=target.dataset.careerCheck;store.update(s=>{s.careerChecks=target.checked?[...new Set([...s.careerChecks,id])]:s.careerChecks.filter(c=>c!==id);});refreshPreservingScroll();}
  else if(target.dataset.application){persistedToast(store.update(s=>{const a=s.applications.find(a=>a.id===target.dataset.application);if(a)a.status=target.value;}),'Status atualizado.');}
  else if(target.id==='interview-select'){const form=document.querySelector('#interview-form');store.update(s=>s.interviewAnswers[form.dataset.id]=document.querySelector('#interview-answer').value);ui.interviewId=target.value;const y=window.scrollY;render();window.scrollTo(0,y);}
  else if(target.id==='backup-file'){
   const file=target.files?.[0];if(!file)return;
-  try {if(file.size>5*1024*1024)throw new Error('O backup excede o limite de 5 MB.');const value=JSON.parse(await file.text());ui.importedBackup=sanitize(value);modal(`<h2>Restaurar este backup?</h2><p>Backup de <strong>${esc(ui.importedBackup.profile.name)}</strong>, com ${Object.keys(ui.importedBackup.completed).length} aulas concluídas.</p><p>O progresso atual deste navegador será substituído. Exporte uma cópia antes se quiser preservá-lo.</p><div class="modal-actions"><button class="button outline" data-action="close-modal">Cancelar</button><button class="button primary" data-action="confirm-import">Restaurar backup</button></div>`);}catch(error){toast(error instanceof SyntaxError?'O arquivo não contém um JSON válido.':error.message);}finally{target.value='';}
+  try {if(file.size>5*1024*1024)throw new Error('O backup excede o limite de 5 MB.');const value=JSON.parse(await file.text());ui.importedBackup=sanitize(value);modal(`<h2>Restaurar este backup?</h2><p>Backup de <strong>${esc(ui.importedBackup.profile.name)}</strong>, com ${Object.keys(ui.importedBackup.completed).length} aulas concluídas.</p><p>O progresso desta conta será substituído. Exporte uma cópia antes se quiser preservá-lo.</p><div class="modal-actions"><button class="button outline" data-action="close-modal">Cancelar</button><button class="button primary" data-action="confirm-import">Restaurar backup</button></div>`);}catch(error){toast(error instanceof SyntaxError?'O arquivo não contém um JSON válido.':error.message);}finally{target.value='';}
  }
 });
 dialog.addEventListener('click',event=>{if(event.target===dialog){const rect=dialog.getBoundingClientRect();if(event.clientX<rect.left||event.clientX>rect.right||event.clientY<rect.top||event.clientY>rect.bottom)closeModal();}});
 window.addEventListener('hashchange',route);
 window.addEventListener('pagehide',()=>{saveDraft();finishFocus(false,true);});
-window.addEventListener('offline',()=>toast('Você está offline. As aulas já carregadas continuam disponíveis; carregar Python precisa de conexão.'));
-window.addEventListener('online',()=>toast('Conexão recuperada.'));
-route();
+window.addEventListener('beforeunload',event=>{saveDraft();if(account.ready&&store.dirty){event.preventDefault();event.returnValue='';}});
+window.addEventListener('offline',()=>toast('Você está offline. As alterações aguardam conexão nesta sessão. Sincronize ou exporte antes de fechar.'));
+window.addEventListener('online',()=>{if(account.ready)void store.flush();});
+document.addEventListener('visibilitychange',()=>{if(document.hidden&&account.ready){saveDraft();void store.flush();}});
+window.addEventListener('focus',async()=>{if(!account.ready||account.recovery)return;const target=store;try{if(target.dirty)await target.flush();else if(await target.refresh()&&target===store)render();}catch{/* Retry remains available in account settings. */}});
+void bootAccount();
 if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
+
+function showAccount(mode,message='') {
+ account.mode=mode;
+ document.title='Sua conta · FutureDev';
+ app.innerHTML=accountGate(mode,message);
+}
+function hasLegacy(){try{return !legacyStore.loadFailed&&!!localStorageAdapter.getItem('futuredev:v1');}catch{return false;}}
+function updateCloudStatus(target) {
+ if(target!==store||!account.ready)return;
+ document.querySelectorAll('[data-sync-status]').forEach(el=>{el.textContent=syncLabels[target.status];el.dataset.status=target.status;});
+ const alert=document.querySelector('[data-cloud-alert]');if(alert){alert.hidden=!target.error;alert.querySelector('[data-cloud-message]').textContent=target.error;alert.querySelector('[data-action="reload-cloud"]').hidden=target.status!=='conflict';}
+ const draft=document.querySelector('#draft-status');if(draft)draft.textContent=syncLabels[target.status];
+}
+async function openAccount(session,event,force=false) {
+ if(event==='TOKEN_REFRESHED'&&!force)return;
+ if(session&&account.user?.id===session.user.id&&!force){if(event==='PASSWORD_RECOVERY'){account.recovery=true;showAccount('recovery');}return;}
+ const generation=++account.generation;
+ if(store instanceof CloudStore)store.close();
+ account.ready=false;account.user=session?.user||null;account.recovery=event==='PASSWORD_RECOVERY';
+ if(runner.worker||runner.busy)runner.stop();
+ ui.runtime={type:'idle',message:'Python no navegador'};
+ clearTimeout(draftTimer);clearInterval(focusInterval);focusSession=null;
+ ui.inputs={};ui.quizResult=null;ui.lastExecution=null;ui.importedBackup=null;
+ if(dialog.open)dialog.close();
+ document.querySelector('#dialog-content').replaceChildren();
+ clearTimeout(toastTimer);document.querySelector('#toast').textContent='';document.querySelector('#toast').classList.remove('show');
+ if(!session){store=legacyStore;showAccount('login');return;}
+ showAccount('loading');
+ const next=new CloudStore(progressAPI(account.client),session.user.id,updateCloudStatus);
+ store=next;
+ try{
+  await next.load(session.user.user_metadata?.name||'Dev');
+  if(generation!==account.generation){next.close();return;}
+  account.ready=true;
+  if(account.recovery)showAccount('recovery');else route();
+ }catch{
+  if(generation===account.generation)showAccount('failed','Verifique sua conexão. Se o problema persistir, o banco ainda precisa ser configurado.');
+ }
+}
+async function submitAccount(form,data) {
+ if(!account.client)return;
+ const mode=form.dataset.mode,email=String(data.get('email')||'').trim(),password=String(data.get('password')||'');
+ if((mode==='signup'||mode==='recovery')&&password!==data.get('confirm')){toast('As senhas precisam ser iguais.');return;}
+ const button=form.querySelector('button[type="submit"]');button.disabled=true;
+ const redirect=new URL('./',location.href).href;
+ try{
+  let result;
+  if(mode==='signup')result=await account.client.auth.signUp({email,password,options:{data:{name:String(data.get('name')||'Dev').trim().slice(0,60)},emailRedirectTo:redirect}});
+  else if(mode==='forgot')result=await account.client.auth.resetPasswordForEmail(email,{redirectTo:redirect});
+  else if(mode==='recovery')result=await account.client.auth.updateUser({password});
+  else result=await account.client.auth.signInWithPassword({email,password});
+  if(result.error){toast(authMessage(result.error));return;}
+  if(mode==='signup'&&!result.data.session)showAccount('login','Confira seu e-mail para confirmar a conta. Depois entre com sua senha.');
+  else if(mode==='forgot')showAccount('login','Se houver uma conta com esse e-mail, você receberá um link para criar uma nova senha.');
+  else if(mode==='recovery'){account.recovery=false;route();toast('Nova senha salva. Sua jornada está pronta.');}
+ }catch{toast('Não foi possível conectar. Tente novamente.');}
+ finally{if(button.isConnected)button.disabled=false;}
+}
+async function bootAccount() {
+ showAccount('loading');
+ const config=typeof __FUTUREDEV_CONFIG__==='undefined'?null:__FUTUREDEV_CONFIG__;
+ if(!config){showAccount('setup');return;}
+ try{
+  account.client=createAccountClient(config);
+  account.client.auth.onAuthStateChange((event,session)=>{setTimeout(()=>{void openAccount(session,event);},0);});
+  const {error}=await account.client.auth.getSession();
+  if(error)showAccount('login','Sua sessão expirou. Entre novamente.');
+ }catch{showAccount('failed','Não foi possível iniciar a conexão. Recarregue a página.');}
+}

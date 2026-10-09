@@ -1,46 +1,79 @@
-# Arquitetura e evolução
+# Arquitetura FutureDev
 
-## Versão atual
+Frontend em HTML, CSS e JavaScript nativo, compilado com esbuild para dist/.
+A Vercel serve os arquivos estáticos. O SDK Supabase oficial, com versão fixa e
+lockfile, conecta o cliente ao Auth e ao Data API, que aplica autenticação e RLS.
 
-Frontend estático em HTML, CSS e JavaScript nativo. Sem framework, etapa de build ou chave privada no frontend. Aulas e correção de código funcionam no GitHub Pages. O interpretador Python usa WebAssembly em um Worker, separado da interface. A execução pode ser encerrada pelo usuário e tem um limite de 12 segundos após carregar o interpretador. A saída de código tem limite de 16 mil caracteres. O carregamento inicial tem prazo de 90 segundos e pode ser repetido após erro.
+## Conta e dados
 
-O avaliador cria um módulo e um diretório temporários por execução. Define entradas controladas para `input()`, captura stdout/stderr e verifica expressões de contrato. Há suporte a funções assíncronas e top-level await. Isso é isolamento de estado para aprendizado; não é uma barreira antifraude e não deve ser usado como sandbox de backend para código de terceiros.
-
-Progresso em `localStorage` na chave `futuredev:v1`. O esquema 1 guarda perfil, rascunhos, aulas, tentativas, avaliações, revisões, projetos, respostas de entrevista, candidaturas, atividade e aparência. Importações reconstroem o esquema, limitam campos, rejeitam URLs não HTTPS e descartam IDs desconhecidos. Falhas de leitura ou escrita aparecem na interface. Um estado ilegível não é sobrescrito automaticamente.
-
-Os textos do usuário são escapados antes de renderizar HTML. Links externos usam HTTPS sem credenciais. O código digitado roda localmente no Worker; não há envio para um serviço de IA. O CDN recebe requisições de download do interpretador, não o progresso pessoal. Código Python escrito pelo próprio usuário pode fazer requisições de rede se isso for implementado por ele.
-
-O service worker usa rede primeiro e cache como alternativa para arquivos do mesmo endereço. Não armazena o CDN Python como pacote offline completo. A consulta de aulas offline é diferente da execução Python offline.
-
-## Por que começar sem banco remoto
-
-O uso inicial é individual. Um banco não é necessário para servir aulas e testar Python localmente. Isso reduz configuração e permite começar agora. A limitação é o progresso por navegador, tratado com backup e restauração. A ausência de conta não oferece sincronização e não deve ser apresentada como se oferecesse.
-
-## Quando adicionar um banco
-
-Contas, recuperação automática, vários aparelhos e um tutor online exigem um serviço externo. O frontend pode continuar no Pages ou migrar de hospedagem depois. Um domínio próprio muda o endereço; por si só, não acrescenta um backend.
-
-Uma implementação futura pode usar PostgreSQL com um provedor de autenticação (por exemplo, Supabase) ou uma API Python com PostgreSQL. Nenhum projeto de banco foi criado ou vinculado nesta versão.
-
-Modelo proposto:
-
-| Entidade | Dados |
+| Responsabilidade | Local |
 | --- | --- |
-| profiles | usuário autenticado, rotina, objetivo, fuso |
-| lesson_progress | usuário, aula, primeira conclusão, tentativas, revisão |
-| quiz_attempts | usuário, avaliação, respostas, resultado, data |
-| code_drafts | usuário, aula/laboratório, código, data de alteração |
-| project_progress | usuário, projeto, critérios, link, notas |
-| applications | usuário, empresa, cargo, status, próximo passo |
+| E-mail, senha, confirmação e recuperação | Supabase Auth |
+| Sessão de login e renovação de token | SDK Supabase no navegador |
+| Perfil, rotina, meta, tema e tempo de foco | JSONB na conta |
+| Aulas, tentativas, XP, avaliações e revisões | JSONB na conta |
+| Códigos, projetos, entrevistas e candidaturas | JSONB na conta |
+| Alterações aguardando sincronização | Memória da sessão |
+| Cópia antiga futuredev:v1 | Navegador, somente para importação explícita |
+| Curso e código do site | Git e arquivos estáticos |
 
-Requisitos para essa etapa: autenticação, política por usuário em todas as tabelas, acesso anônimo recusado para dados pessoais, controle de conflito entre aparelhos e migração consentida do backup local. Chaves privadas e service-role nunca vão para o Pages. Uma API com tutor por IA deve proteger chaves, custos e dados no backend; não há um tutor por IA na versão atual.
+futuredev_progress guarda uma linha por auth.users.id, com chave primária e
+foreign key com exclusão em cascata. O snapshot JSONB mantém o esquema 1 dos
+backups anteriores. O cliente sanitiza leituras e importações; o banco verifica
+formato, versão e limite de 5 MiB.
 
-## Domínio próprio
+RLS está habilitada e forçada. SELECT, INSERT e UPDATE exigem auth.uid() = user_id.
+UPDATE também aplica WITH CHECK, impedindo a troca de dono da linha. anon não
+possui privilégios sobre a tabela ou RPC. A função de gravação usa SECURITY
+INVOKER com search_path vazio e preserva RLS.
 
-1. Faça backup no endereço atual antes da migração.
-2. Cadastre o domínio em Settings → Pages no GitHub.
-3. Use os registros DNS indicados pelo GitHub e pelo registrador, conforme o tipo de domínio. Confira a documentação atual antes de alterar DNS.
-4. Verifique o domínio e HTTPS.
-5. Restaure o backup no novo endereço.
+## Sincronização
 
-O projeto usa URLs relativas e rotas `#`, sem um prefixo fixo `/futuredev`. Não foi criado um CNAME com domínio fictício.
+CloudStore mantém estado em memória, revisão remota e sequência de edições.
+Gravações são agrupadas e serializadas. Alterações durante uma requisição são
+enviadas numa próxima chamada. A RPC grava somente quando a revisão esperada
+corresponde à atual, com operações atômicas no PostgreSQL.
+
+Uma revisão antiga recebe PT409 / HTTP 409. A interface preserva a tentativa,
+permite exportá-la e pede uma escolha antes de carregar a versão do servidor.
+Falhas de rede não são apresentadas como sucesso. O aviso de saída e o logout
+aguardam a sincronização se existem alterações pendentes.
+
+Ao retomar a janela, dados remotos são carregados apenas se não houver edições
+pendentes. Chamadas async ficam fora do callback de autenticação do SDK. A troca
+de usuário encerra o Worker, timers e estado da interface. Respostas atrasadas
+de uma conta encerrada não alteram a nova conta.
+
+## Migração e backups
+
+A associação de progresso antigo a uma conta exige uma escolha explícita,
+com confirmação do e-mail de destino. A cópia anterior não é apagada.
+Na mudança de Pages para Vercel, exporte o JSON no Pages e restaure na conta.
+Depois, o mesmo login recupera os dados em outros aparelhos e domínios autorizados.
+
+## Python e cache
+
+Python roda no aparelho do usuário, com Pyodide 0.28.3 num Worker. Cada execução
+cria módulo e diretório temporários, captura entrada/saída, verifica contratos
+e interrompe código longo após 12 segundos. Isso isola o estado de aprendizagem;
+não é uma barreira antifraude nem um sandbox de backend para código de terceiros.
+
+O service worker guarda apenas arquivos públicos do curso. Respostas Auth/API
+e dados pessoais não entram no cache. Uma sessão aberta pode consultar aulas já
+carregadas durante uma falha de rede. Login, sincronização e carregamento inicial
+do Python precisam de conexão.
+
+## Segurança
+
+Textos do usuário são escapados antes de entrar no HTML. Links externos usam
+HTTPS sem credenciais. O frontend recebe somente URL pública e chave publishable
+ou anon. O build recusa chaves secret e service_role. Senhas e tokens não entram
+no snapshot. Não há tutor por IA ou execução de código do usuário no backend.
+
+## Verificação e ativação
+
+Testes automatizados cobrem RLS, acesso anônimo, troca de dono, revisões, gravações
+simultâneas, falhas de rede e troca de conta. Os testes de navegador usam SDK real,
+Auth sintético e a migração de produção em PostgreSQL via PGlite. A verificação
+com contas e e-mails reais depende de um banco e deploy configurados.
+Veja [configuração](cloud-setup.md).
