@@ -1,0 +1,13 @@
+{
+  "name": "futuredev",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Plataforma pessoal de formação em Python, com aulas, prática real e preparação profissional.",
+  "scripts": {
+    "dev": "python3 -m http.server 4173",
+    "test": "node --test tests/core.test.js && python3 tests/check_curriculum.py",
+    "check": "node --check js/app.js && node --check js/curriculum.js && node --check js/store.js && node --check js/runner.js && node --check js/python-worker.js && node --check js/views.js && node --check js/ui.js && node --check js/content.js && node --check sw.js"
+  },
+  "engines": { "node": ">=20" }
+}
