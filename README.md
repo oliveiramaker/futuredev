@@ -1,5 +1,7 @@
 # FutureDev
 
+[**Abrir plataforma**](https://oliveiramaker.github.io/futuredev/)
+
 Plataforma pessoal de aprendizado de Python até a primeira oportunidade profissional. A interface e o conteúdo são em português e funcionam no celular e no computador.
 
 ## O que está implementado
@@ -49,7 +51,7 @@ O fluxo em `.github/workflows/pages.yml` verifica o currículo e publica os arqu
 
 Alternativamente, selecione **Deploy from a branch**, branch **main**, pasta **/ (root)**. A presença de `.nojekyll` preserva os arquivos estáticos sem processamento Jekyll. Nesse modo, o GitHub cuida da publicação da branch e o workflow continua validando o conteúdo. Se Pages não estiver habilitado, o workflow valida o projeto e indica a configuração inicial necessária, sem tentar um deploy que depende dessa configuração.
 
-Endereço previsto após ativação: `https://oliveiramaker.github.io/futuredev/`. A existência desse endereço não confirma que o primeiro deploy já terminou; confira a execução e a seção Pages.
+Plataforma publicada: [oliveiramaker.github.io/futuredev](https://oliveiramaker.github.io/futuredev/). A publicação atual usa a branch **main**, pasta **/ (root)**; os dois modos acima continuam disponíveis.
 
 ## Progresso e banco de dados
 
