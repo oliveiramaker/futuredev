@@ -3,7 +3,7 @@ import {projects,interviewQuestions} from './content.js';
 import {Store,today,touch,recordLesson,grade,recordQuiz,recordDiagnostic,recordQuestionReview,dueReviews,safeUrl,sanitize,validDate} from './store.js';
 import {PythonRunner} from './runner.js';
 import {icon,esc} from './ui.js';
-import {shell,dashboard,trail,lessonView,lab,assessment,reviews,projectView,career,planView,settings} from './views.js';
+import {shell,dashboard,trail,lessonView,lab,assessment,reviews,projectView,career,planView,settings} from './views.js?v=1.1.0';
 
 let localStorageAdapter;
 try {localStorageAdapter=window.localStorage;} catch {localStorageAdapter={getItem:()=>null,setItem:()=>{throw new Error('Armazenamento indisponível');}};}
@@ -31,6 +31,7 @@ function runtimeStatus() {
 }
 function render() {
  const s=store.state;document.documentElement.dataset.theme=s.theme;
+ document.querySelector('meta[name="theme-color"]')?.setAttribute('content',s.theme==='dark'?'#11152a':'#f7f4ec');
  const view=ui.route==='inicio'?dashboard(s):ui.route==='trilha'?trail(s,ui.arg):ui.route==='aula'?lessonView(s,ui.arg):ui.route==='laboratorio'?lab(s):ui.route==='avaliacao'?assessment(s,ui.arg,ui):ui.route==='revisoes'?reviews(s):ui.route==='projetos'?projectView(s,ui.arg):ui.route==='carreira'?career(s,ui):ui.route==='plano'?planView(s):settings(s);
  app.innerHTML=shell(s,ui.route,view,store.error);
  document.title=`${ui.route==='aula'&&lessonMap[ui.arg]?lessonMap[ui.arg].title:ui.route==='laboratorio'?'Laboratório Python':ui.route==='carreira'?'Sua primeira vaga':'Sua jornada em Python'} · FutureDev`;

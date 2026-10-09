@@ -19,6 +19,10 @@ Plataforma pessoal de aprendizado de Python até a primeira oportunidade profiss
 
 Os projetos e entrevistas usam autoavaliação com critérios explícitos. Não há revisão automática de um repositório externo nem correção por IA. O indicador de preparação resume a atividade registrada, sem prometer contratação.
 
+## Identidade visual
+
+A interface segue a identidade do Ecomfy: Space Grotesk, azul cobalto, verde-lima e cartões em lilás, coral e verde-sálvia. O sistema visual está em `assets/ecomfy.css`, sobre a estrutura de layout de `assets/styles.css`. A fonte é local, com a licença SIL OFL em `assets/fonts/OFL.txt`, e é armazenada para consulta offline. Temas, exercícios e dados de progresso usam as mesmas regras da plataforma.
+
 ## Comece por aqui
 
 1. Abra o site e entre em **Meu plano** para ajustar tempo, dias e meta. No celular, o ícone de configurações leva às preferências e ao plano.
@@ -84,6 +88,7 @@ Se o servidor estiver na pasta pai ou em outra porta, defina `FUTUREDEV_BASE_URL
 
 | Caminho | Responsabilidade |
 | --- | --- |
+| `assets/ecomfy.css` | Paleta, tipografia e componentes visuais |
 | `js/curriculum.js` | Aulas, soluções, testes e perguntas |
 | `js/content.js` | Projetos, entrevistas e referências |
 | `js/store.js` | Persistência, validação e regras de progresso |

@@ -11,7 +11,7 @@ const root=path.resolve(__dirname,'..');
  let server;
  if(!BASE){
   const http=require('node:http');
-  const types={'.html':'text/html','.js':'text/javascript','.css':'text/css','.svg':'image/svg+xml','.png':'image/png','.webmanifest':'application/manifest+json','.py':'text/plain'};
+  const types={'.html':'text/html','.js':'text/javascript','.css':'text/css','.svg':'image/svg+xml','.png':'image/png','.woff2':'font/woff2','.webmanifest':'application/manifest+json','.py':'text/plain'};
   server=http.createServer(async(req,res)=>{try{let name=decodeURIComponent(new URL(req.url,'http://localhost').pathname).replace(/^\/futuredev\//,'');if(!name||name==='/')name='index.html';const file=path.resolve(root,name);if(!file.startsWith(root+path.sep)){res.writeHead(403);return res.end();}const content=await fs.readFile(file);res.writeHead(200,{'Content-Type':types[path.extname(file)]||'application/octet-stream'});res.end(content);}catch{res.writeHead(404);res.end('Not found');}});
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));BASE=`http://127.0.0.1:${server.address().port}/futuredev/`;
  }
@@ -44,6 +44,7 @@ const root=path.resolve(__dirname,'..');
   await page.waitForFunction(()=>{const s=document.querySelector('#execution-label')?.textContent;return ['Testes concluídos','Executado','Erro na execução','Interrompido'].includes(s);},{},{timeout:120000});
  };
  await go('inicio');assert.ok((await page.locator('main').innerText()).includes('Seu próximo passo em Python.'));
+ await page.evaluate(()=>document.fonts.ready);assert.ok(await page.evaluate(()=>[...document.fonts].some(f=>f.family==='Space Grotesk'&&f.status==='loaded')),'A fonte local deve carregar.');
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
  await page.screenshot({path:path.join(output,'desktop-inicio.png'),fullPage:true});
  if(!process.env.FUTUREDEV_UI_ONLY){
@@ -83,18 +84,23 @@ const root=path.resolve(__dirname,'..');
  console.log('Plano, projetos, carreira, candidaturas e backup verificados.');
  await go('inicio');await page.locator('[data-action=theme]').click();assert.equal(await page.evaluate(()=>document.documentElement.dataset.theme),'light');await page.screenshot({path:path.join(output,'desktop-claro.png'),fullPage:true});
  await page.locator('[data-action=theme]').click();
+ for(const theme of ['dark','light']){
+  if(await page.evaluate(()=>document.documentElement.dataset.theme)!==theme)await page.locator('[data-action=theme]').click();
  for(const width of [390,320,768,1440]){
   await page.setViewportSize({width,height:900});
+  if(width<=760)assert.ok(await page.getByRole('link',{name:'Preferências',exact:true}).isVisible(),'As preferências devem continuar acessíveis no celular.');
   for(const route of ['inicio','trilha','trilha/m01','aula/m03-dicionarios','laboratorio','projetos','projetos/api','carreira','plano','preferencias','avaliacao/m02','revisoes']){
    await go(route);
    const overflow=await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth);
    if(overflow){await page.screenshot({path:path.join(output,'overflow.png'),fullPage:true});console.log(await page.evaluate(()=>[...document.querySelectorAll('main *')].map(e=>({tag:e.tagName,class:e.className,right:e.getBoundingClientRect().right,width:e.getBoundingClientRect().width})).filter(e=>e.right>innerWidth+1).slice(0,15)));}
-   assert.equal(overflow,false,`Overflow em ${width}px: ${route}`);
+   assert.equal(overflow,false,`Overflow em ${width}px (${theme}): ${route}`);
   }
+ }
  }
  await context.clearCookies();await page.evaluate(()=>localStorage.removeItem('futuredev:v1'));await page.reload();await page.setViewportSize({width:390,height:844});await go('inicio');await page.screenshot({path:path.join(output,'mobile-inicio.png'),fullPage:true});
  await go('aula/m03-dicionarios');await page.screenshot({path:path.join(output,'mobile-aula.png'),fullPage:true});
  await page.setViewportSize({width:1440,height:1050});await go('inicio');await page.screenshot({path:path.join(output,'desktop-inicio.png'),fullPage:true});
+ await page.locator('[data-action=theme]').click();await page.screenshot({path:path.join(output,'desktop-claro.png'),fullPage:true});await page.locator('[data-action=theme]').click();
  await page.goto(`${BASE}#aula/__proto__`);await page.locator('main h1').waitFor();await page.goto(`${BASE}#avaliacao/toString`);await page.locator('main h1').waitFor();
  assert.deepEqual(errors,[]);
  await page.waitForFunction(()=>navigator.serviceWorker.controller!==null,{},{timeout:10000});await context.setOffline(true);await page.reload();await page.locator('main h1').waitFor();assert.ok(await page.locator('main').innerText());await context.setOffline(false);

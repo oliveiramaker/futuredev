@@ -1,6 +1,6 @@
-const CACHE='futuredev-v1.0.0';
-const FILES=['./','./index.html','./assets/styles.css','./assets/icon.svg','./assets/icon-192.png','./assets/icon-512.png','./manifest.webmanifest','./assets/checker.py','./js/app.js','./js/ui.js','./js/views.js','./js/curriculum.js','./js/content.js','./js/store.js','./js/runner.js','./js/python-worker.js'];
-self.addEventListener('install',event=>{event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(FILES)));self.skipWaiting();});
+const CACHE='futuredev-v1.1.0';
+const FILES=['./','./index.html','./assets/styles.css','./assets/ecomfy.css','./assets/fonts/space-grotesk.woff2','./assets/orbit-arrow.svg','./assets/icon.svg','./assets/icon-192.png','./assets/icon-512.png','./manifest.webmanifest','./assets/checker.py','./js/app.js?v=1.1.0','./js/ui.js','./js/views.js?v=1.1.0','./js/curriculum.js','./js/content.js','./js/store.js','./js/runner.js','./js/python-worker.js'];
+self.addEventListener('install',event=>{event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(FILES.map(path=>new Request(path,{cache:'reload'})))));self.skipWaiting();});
 self.addEventListener('activate',event=>{event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('futuredev-')&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim()));});
 self.addEventListener('fetch',event=>{
  const url=new URL(event.request.url);
